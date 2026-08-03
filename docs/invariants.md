@@ -25,7 +25,7 @@ vidcull 코드를 고치기 전에 확인한다. 여기 있는 규칙은 "더 �
 
 ## IPC 버전 게이트
 
-`vidcull-ipc`가 소유한 프로토콜 버전(현재 v11) 불일치는 하드 게이트로 거부되어야 한다.
+`vidcull-ipc`가 소유한 프로토콜 버전(`crates/vidcull-ipc/src/protocol.rs`의 `PROTOCOL_VERSION`) 불일치는 하드 게이트로 거부되어야 한다.
 
 - 버전 체크를 완화하거나, 특정 케이스에 한해 우회하는 코드를 추가하지 않는다.
 - 프론트 TS는 IPC 응답을 `app/src/lib/ipc/validate.ts`에서 런타임 검증한다 — `as` 단언으로 이 경로를 건너뛰지 않는다.

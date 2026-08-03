@@ -7,9 +7,9 @@
 | 상태 | 위치 | 내용 |
 | --- | --- | --- |
 | open | `crates/vidcull-parser/src/mp4.rs:166` | `probe_mp4_with_context_cancellable`가 같은 파일을 두 번 연다(크기 확인용 1회 + `read_mp4_tolerant_cancellable`에서 1회). 네이티브 MP4 파싱의 가장 뜨거운 경로. |
-| open | `crates/vidcull-matcher/src/partial.rs:323-331` (`AnchorIndex::candidates`) | `BTreeSet<Posting>` 안티패턴 — `near.rs`의 `LshIndex::candidates`에서 이미 고친 것과 동일. `search_inner`의 파일×씬마다 호출되는 hot loop. `Vec::with_capacity + sort_unstable + dedup`로 전환. |
-| open | `crates/vidcull-db/src/repo/duplicate_groups.rs` | 파일 전체가 `prepare_cached` 전환에서 빠짐. `add_member`/`find_groups_containing`이 매칭 재구축 시 파일당 1회 호출(`indexing.rs:969,1465`). |
-| open | `crates/vidcull-db/src/repo/files.rs:242,265` (`find_active_twin_by_hash`, `list_active_by_hash`) | 같은 파일의 다른 메서드는 이미 캐싱했는데 이 둘만 빠짐. 파일당·스캔당 호출되는 가장 뜨거운 경로 중 하나(`indexing.rs:851,1111,1337`). |
+| done | `crates/vidcull-matcher/src/partial.rs:323-331` (`AnchorIndex::candidates`) | `BTreeSet<Posting>` 안티패턴 — `near.rs`의 `LshIndex::candidates`에서 이미 고친 것과 동일. `search_inner`의 파일×씬마다 호출되는 hot loop. 현재 코드는 이미 `Vec::with_capacity + sort_unstable + dedup`로 전환돼 있음(2026-08-03 재확인). |
+| done | `crates/vidcull-db/src/repo/duplicate_groups.rs` | 파일 전체가 `prepare_cached` 전환에서 빠짐 — 현재는 파일 전체가 `prepare_cached`로 전환돼 있음(2026-08-03 재확인). |
+| done | `crates/vidcull-db/src/repo/files.rs:242,265` (`find_active_twin_by_hash`, `list_active_by_hash`) | 같은 파일의 다른 메서드는 이미 캐싱했는데 이 둘만 빠짐 — 현재는 두 메서드 모두 `prepare_cached`로 전환돼 있음(2026-08-03 재확인). |
 | open | `app/src/routes/(app)/+page.svelte:356-397` + `app/src/lib/model/progress.ts:501-509` (`shouldRefreshGroups`) | 스캔 중 800ms(`ACTIVE_POLL_MS`)마다 사용자가 스크롤로 불러온 전체 클러스터 목록을 재요청하고 `clustersEqual`(O(n·멤버수))로 전체 딥 비교. 목록이 커질수록, 스캔이 길어질수록 부담 증가. |
 
 ## Medium
