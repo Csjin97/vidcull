@@ -16,7 +16,7 @@
 
 | 상태 | 위치 | 내용 |
 | --- | --- | --- |
-| open | `crates/vidcull-matcher/src/partial/mih.rs:88-104` (`MultiIndexHash::candidates`) | 위 `AnchorIndex::candidates`와 동일한 `BTreeSet` 패턴의 쌍둥이. |
+| done | `crates/vidcull-matcher/src/partial/mih.rs:88-104` (`MultiIndexHash::candidates`) | 위 `AnchorIndex::candidates`와 동일한 `BTreeSet` 패턴의 쌍둥이 — `Vec::with_capacity + sort_unstable + dedup`로 전환(2026-08-03). 회귀 없음은 `within_distance_pairs_are_recall_complete_vs_brute_force`, `db_resident_keys_reproduce_the_in_memory_candidate_set` 통과로 확인. |
 | open | `crates/vidcull-scanner/src/options.rs`, `walk.rs` | 확장자·제외 디렉터리 판정에서 파일/디렉터리마다 `.to_ascii_lowercase()`로 힙 할당. `eq_ignore_ascii_case` 비교로 무할당 전환 가능. |
 | open | `crates/vidcull-parser/src/mp4.rs:331` (`find_box`) | HEVC 파일마다 박스 트리 탐색 시 `Vec`로 전부 수집 후 버림(트랙→미디어→...→엔트리 체이닝). lazy 순회로 전환 가능. |
 | open | `crates/vidcull-db/src/repo/similarity_edges.rs`, `scene_hashes.rs`, `partial_mih.rs` | 매칭 재구축당 수백 번 호출되는 insert들이 미캐싱. |

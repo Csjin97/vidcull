@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use super::Posting;
 
@@ -86,21 +86,23 @@ impl MultiIndexHash {
     }
 
     pub(crate) fn candidates(&self, phash: u64) -> Vec<Posting> {
-        let mut set: BTreeSet<Posting> = BTreeSet::new();
         if phash == 0 {
             return Vec::new();
         }
+        let mut candidates = Vec::with_capacity(32);
         let mut keys: Vec<u64> = Vec::new();
         for (c, bucket) in self.buckets.iter().enumerate() {
             let value = chunk_value(phash, u32::try_from(c).unwrap_or(0), self.chunk_bits);
             hamming_ball(value, self.chunk_bits, self.radius, &mut keys);
             for key in &keys {
                 if let Some(list) = bucket.get(key) {
-                    set.extend(list.iter().copied());
+                    candidates.extend(list.iter().copied());
                 }
             }
         }
-        set.into_iter().collect()
+        candidates.sort_unstable();
+        candidates.dedup();
+        candidates
     }
 }
 
@@ -169,6 +171,8 @@ fn combinations(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
     use vidcull_core::types::FileId;
     use vidcull_fingerprint::hamming_distance;
