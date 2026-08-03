@@ -73,22 +73,26 @@ npm run tauri build
 
 빌드 결과물은 `app/src-tauri/target/release/bundle/` 아래에 생성된다.
 
-Windows에서 데몬·FFmpeg까지 스테이징한 **완전한 인스톨러**를 한 번에 만들려면:
+Windows에서 데몬·FFmpeg까지 스테이징한 **완전한 인스톨러**를 한 번에 만들려면, 저장소 루트의 `build-installer.bat`을 실행한다(더블클릭 가능). 내부적으로 daemon 스테이징 → FFmpeg/디코드 사이드카 스테이징 → `npm run tauri build`를 순서대로 수행하며, 결과물은 `app/src-tauri/target/release/bundle/nsis/vidcull_<version>_x64-setup.exe`에 생성된다.
+
+FFmpeg 바이너리를 아직 받아둔 적이 없다면 먼저 한 번 받아둔다:
 
 ```powershell
-# FFmpeg 바이너리를 처음 한 번 받아둔다
 .\scripts\fetch-ffmpeg.ps1
+```
 
-# 데몬 + FFmpeg 번들 + 인스톨러까지 빌드
+동일한 과정을 PowerShell에서 직접 실행하려면:
+
+```powershell
 .\app\scripts\build-release.ps1
 ```
 
 ## 사용법
 
 1. **폴더 추가** — 설정 화면에서 감시할 디렉터리를 등록한다.
-2. **자동 인덱싱** — 데몬이 알아서 파일을 스캔하고 지문을 만든다. 진행 상황은 앱 상단 상태 표시줄에서 볼 수 있다.
+2. **자동 인덱싱** — 데몬이 알아서 파일을 스캔하고 지문을 만든다. 진행 상황은 앱 상단 상태 표시줄에서 볼 수 있다. 필요하면 설정 화면의 **전체 재스캔 / 전체 강제 재스캔**으로 모든 폴더를 다시 스캔할 수 있다.
 3. **중복 그룹 리뷰** — 탐지된 그룹을 썸네일과 신뢰도(EXACT / VERY_LIKELY / POSSIBLE)와 함께 확인한다. 화질·용량 기준으로 보존본이 자동 추천된다.
-4. **안전 삭제** — 최종 확인 후 OS 휴지통으로 보낸다. 실수로 지운 경우 복원을 감지한다.
+4. **안전 삭제** — 그룹 하나씩, 또는 목록에서 여러 그룹을 체크(전체 선택 지원)해 **일괄 정리**로 한 번에 삭제할 수 있다. 두 방식 모두 최종 확인 후 OS 휴지통으로 보내며, 실수로 지운 경우 복원을 감지한다.
 
 ## 개발
 

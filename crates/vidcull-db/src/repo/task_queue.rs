@@ -5,6 +5,7 @@
  * [변경 이력 (Changelog)]
  * - 2026-08-03 : 대용량 스캔용 작업 ID 워터마크와 증분 payload 조회 추가
  */
+// 2026-08-03: 진행 집계용 payload 전용 스트리밍 조회 추가.
 // 2026-08-03: 대용량 작업 큐 진행 조회를 위한 상태별 스트리밍 순회 추가.
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use vidcull_core::{Error, Result};
@@ -515,6 +516,47 @@ impl<'a> TaskQueueRepo<'a> {
         raw.into_iter().collect()
     }
 
+    pub fn visit_payload_by_priority_state(
+        &self,
+        priority: i32,
+        state: TaskState,
+        mut visit: impl FnMut(Option<&[u8]>) -> Result<()>,
+    ) -> Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT payload FROM task_queue \
+                 WHERE state = ?1 AND priority = ?2",
+            )
+            .map_err(map_err)?;
+        let mut rows = stmt
+            .query(params![state.as_text(), priority])
+            .map_err(map_err)?;
+        while let Some(row) = rows.next().map_err(map_err)? {
+            let payload: Option<Vec<u8>> = row.get(0).map_err(map_err)?;
+            visit(payload.as_deref())?;
+        }
+        Ok(())
+    }
+
+    pub fn visit_priority_payload_by_state(
+        &self,
+        state: TaskState,
+        mut visit: impl FnMut(i32, Option<&[u8]>) -> Result<()>,
+    ) -> Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT priority, payload FROM task_queue WHERE state = ?1")
+            .map_err(map_err)?;
+        let mut rows = stmt.query(params![state.as_text()]).map_err(map_err)?;
+        while let Some(row) = rows.next().map_err(map_err)? {
+            let priority: i32 = row.get(0).map_err(map_err)?;
+            let payload: Option<Vec<u8>> = row.get(1).map_err(map_err)?;
+            visit(priority, payload.as_deref())?;
+        }
+        Ok(())
+    }
+
     pub fn requeue_busy_task(&self, id: i64, enqueued_at: i64, attempts: i32) -> Result<()> {
         self.conn
             .prepare_cached(
@@ -805,6 +847,64 @@ mod tests {
             repo.min_pending_enqueued_at("scan").expect("min"),
             Some(NOW + 5),
             "a DONE row's earlier enqueued_at must not leak into the PENDING minimum"
+        );
+    }
+
+    #[test]
+    fn visit_payload_by_priority_state_projects_only_matching_payloads() {
+        let db = crate::open_in_memory().expect("open in-memory db");
+        let repo = TaskQueueRepo::new(db.conn());
+        let matching = repo
+            .enqueue(&NewTask {
+                kind: "scan".into(),
+                priority: -10,
+                payload: Some(vec![1, 2, 3]),
+                enqueued_at: NOW,
+                size_bytes: 0,
+            })
+            .expect("enqueue matching");
+        let null_payload = repo
+            .enqueue(&NewTask {
+                kind: "scan".into(),
+                priority: -10,
+                payload: None,
+                enqueued_at: NOW + 1,
+                size_bytes: 0,
+            })
+            .expect("enqueue null payload");
+        repo.enqueue(&NewTask {
+            kind: "scan".into(),
+            priority: 0,
+            payload: Some(vec![9]),
+            enqueued_at: NOW + 2,
+            size_bytes: 0,
+        })
+        .expect("enqueue other priority");
+        db.conn()
+            .execute(
+                "UPDATE task_queue SET state = 'DONE' WHERE id IN (?1, ?2)",
+                params![matching, null_payload],
+            )
+            .expect("mark matching rows done");
+
+        let mut payloads = Vec::new();
+        repo.visit_payload_by_priority_state(-10, TaskState::Done, |payload| {
+            payloads.push(payload.map(<[u8]>::to_vec));
+            Ok(())
+        })
+        .expect("visit payloads");
+
+        assert_eq!(payloads, vec![Some(vec![1, 2, 3]), None]);
+
+        let mut projected = Vec::new();
+        repo.visit_priority_payload_by_state(TaskState::Done, |priority, payload| {
+            projected.push((priority, payload.map(<[u8]>::to_vec)));
+            Ok(())
+        })
+        .expect("visit priority and payload");
+        assert_eq!(
+            projected,
+            vec![(-10, Some(vec![1, 2, 3])), (-10, None)]
         );
     }
 

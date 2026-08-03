@@ -246,7 +246,7 @@ impl<'a> FilesRepo<'a> {
     ) -> Result<Option<FileRecord>> {
         let blob: &[u8] = hash.as_bytes();
         self.conn
-            .query_row(
+            .prepare_cached(
                 "SELECT id, path, size_bytes, mtime_ns, inode, content_hash, \
                         codec, container, duration_ms, fps_x1000, bitrate_bps, \
                         width_px, height_px, first_seen_at, last_seen_at, deleted_at, \
@@ -255,9 +255,9 @@ impl<'a> FilesRepo<'a> {
                  WHERE deleted_at IS NULL AND content_hash = ?1 AND path <> ?2 \
                    AND EXISTS (SELECT 1 FROM fingerprints WHERE fingerprints.file_id = files.id) \
                  ORDER BY id ASC LIMIT 1",
-                params![blob, exclude.as_str()],
-                row_to_record,
             )
+            .map_err(map_err)?
+            .query_row(params![blob, exclude.as_str()], row_to_record)
             .optional()
             .map_err(map_err)
     }
@@ -266,7 +266,7 @@ impl<'a> FilesRepo<'a> {
         let blob: &[u8] = hash.as_bytes();
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT id, path, size_bytes, mtime_ns, inode, content_hash, \
                         codec, container, duration_ms, fps_x1000, bitrate_bps, \
                         width_px, height_px, first_seen_at, last_seen_at, deleted_at, \

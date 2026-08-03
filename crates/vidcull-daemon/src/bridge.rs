@@ -4,6 +4,7 @@
  *
  * [변경 이력 (Changelog)]
  * - 2026-08-03 : 클러스터 목록과 멤버 상세를 단일 계산으로 통합
+ * - 2026-08-03 : 실패 작업의 파일 상태 조회를 일괄 처리하여 대량 실패 시 DB 부하 감소
  */
 // 2026-08-03: 진행 상태 조회의 대용량 작업 큐를 스트리밍 처리하도록 개선.
 use std::collections::HashMap;
@@ -158,26 +159,25 @@ impl DaemonRequestHandler {
             let throughput = self.throughput.update(total_bytes_indexed);
             let pending_bytes = repo.sum_outstanding_size_bytes()?;
 
-            let decode_path = |task: &vidcull_db::repo::Task| -> Option<String> {
-                if task.priority < 0 {
+            let decode_path = |priority: i32, payload: Option<&[u8]>| -> Option<String> {
+                if priority < 0 {
                     return None;
                 }
-                task.payload
-                    .as_deref()
+                payload
                     .and_then(|bytes| ChangeTask::from_payload(bytes).ok())
                     .map(|change| change.path.as_str().to_owned())
             };
             let mut current_files = Vec::new();
             let mut inflight = std::collections::BTreeSet::new();
-            repo.visit_by_state(TaskState::Running, |task| {
-                if let Some(path) = decode_path(task) {
+            repo.visit_priority_payload_by_state(TaskState::Running, |priority, payload| {
+                if let Some(path) = decode_path(priority, payload) {
                     inflight.insert(path.clone());
                     current_files.push(path);
                 }
                 Ok(())
             })?;
-            repo.visit_by_state(TaskState::Pending, |task| {
-                if let Some(path) = decode_path(task) {
+            repo.visit_priority_payload_by_state(TaskState::Pending, |priority, payload| {
+                if let Some(path) = decode_path(priority, payload) {
                     inflight.insert(path);
                 }
                 Ok(())
@@ -251,21 +251,24 @@ impl DaemonRequestHandler {
                 partial_skipped.insert(reason, n);
             }
             let count_active_partial_files = |state: TaskState| -> Result<u64> {
-                let tasks =
-                    repo.list_by_priority_state(crate::indexing::PARTIAL_PRIORITY, state)?;
                 let mut paths: std::collections::BTreeSet<String> =
                     std::collections::BTreeSet::new();
                 let mut null_payload_count: u64 = 0;
-                for task in &tasks {
-                    match task.payload.as_deref() {
-                        Some(bytes) => {
-                            if let Ok(change) = ChangeTask::from_payload(bytes) {
-                                paths.insert(change.path.as_str().to_owned());
+                repo.visit_payload_by_priority_state(
+                    crate::indexing::PARTIAL_PRIORITY,
+                    state,
+                    |payload| {
+                        match payload {
+                            Some(bytes) => {
+                                if let Ok(change) = ChangeTask::from_payload(bytes) {
+                                    paths.insert(change.path.as_str().to_owned());
+                                }
                             }
+                            None => null_payload_count += 1,
                         }
-                        None => null_payload_count += 1,
-                    }
-                }
+                        Ok(())
+                    },
+                )?;
                 let normalized: Vec<NormalizedPath> = paths
                     .iter()
                     .map(|p| NormalizedPath::new(p.as_str()))
@@ -1194,20 +1197,21 @@ impl DaemonRequestHandler {
         let tasks = self.with_db(|db| {
             let repo = TaskQueueRepo::new(db.conn());
             let files = FilesRepo::new(db.conn());
-            let mut by_path: std::collections::HashMap<String, FailedTask> =
-                std::collections::HashMap::new();
-            for task in repo
+            let failed_rows: Vec<(vidcull_db::repo::Task, String)> = repo
                 .list_by_state(TaskState::Failed)?
                 .into_iter()
-                .filter(|t| t.priority >= 0)
-            {
-                let Some(path) = task_path(&task) else {
-                    continue;
-                };
-                if files
-                    .find_by_path(&NormalizedPath::new(path.as_str()))?
-                    .is_some_and(|r| r.deleted_at.is_none() && r.content_hash.is_some())
-                {
+                .filter(|task| task.priority >= 0)
+                .filter_map(|task| task_path(&task).map(|path| (task, path)))
+                .collect();
+            let failed_paths: Vec<NormalizedPath> = failed_rows
+                .iter()
+                .map(|(_, path)| NormalizedPath::new(path.as_str()))
+                .collect();
+            let active_hashed = files.active_hashed_paths_in(&failed_paths)?;
+            let mut by_path: std::collections::HashMap<String, FailedTask> =
+                std::collections::HashMap::new();
+            for (task, path) in failed_rows {
+                if active_hashed.contains(NormalizedPath::new(path.as_str()).as_str()) {
                     continue;
                 }
                 let attempts = u32::try_from(task.attempts).unwrap_or(0);

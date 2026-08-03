@@ -163,7 +163,7 @@ pub(crate) fn probe_mp4_with_context_cancellable(
     container: ContainerKind,
     cancel: Cancel<'_>,
 ) -> Result<(VideoMetadata, mp4parse::MediaContext)> {
-    let file_size_bytes = File::open(path)?.metadata()?.len();
+    let file_size_bytes = std::fs::metadata(path)?.len();
 
     let context = read_mp4_tolerant_cancellable(path, cancel)?;
     let metadata = probe_mp4_from_context(&context, path, container, file_size_bytes)?;

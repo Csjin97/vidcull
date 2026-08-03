@@ -71,34 +71,36 @@ impl<'a> DuplicateGroupsRepo<'a> {
 
     pub fn create(&self, trust_level: TrustLevel, when: i64) -> Result<i64> {
         self.conn
-            .execute(
+            .prepare_cached(
                 "INSERT INTO duplicate_groups (trust_level, created_at, updated_at) \
                  VALUES (?1, ?2, ?2)",
-                params![trust_level.as_text(), when],
             )
+            .map_err(map_err)?
+            .execute(params![trust_level.as_text(), when])
             .map_err(map_err)?;
         Ok(self.conn.last_insert_rowid())
     }
 
     pub fn create_non_transitive(&self, trust_level: TrustLevel, when: i64) -> Result<i64> {
         self.conn
-            .execute(
+            .prepare_cached(
                 "INSERT INTO duplicate_groups (trust_level, non_transitive, created_at, updated_at) \
                  VALUES (?1, 1, ?2, ?2)",
-                params![trust_level.as_text(), when],
             )
+            .map_err(map_err)?
+            .execute(params![trust_level.as_text(), when])
             .map_err(map_err)?;
         Ok(self.conn.last_insert_rowid())
     }
 
     pub fn get(&self, id: i64) -> Result<Option<DuplicateGroup>> {
         self.conn
-            .query_row(
+            .prepare_cached(
                 "SELECT id, trust_level, best_file_id, created_at, updated_at, non_transitive \
                  FROM duplicate_groups WHERE id = ?1",
-                params![id],
-                row_to_group,
             )
+            .map_err(map_err)?
+            .query_row(params![id], row_to_group)
             .optional()
             .map_err(map_err)
             .and_then(Option::transpose)
@@ -107,7 +109,7 @@ impl<'a> DuplicateGroupsRepo<'a> {
     pub fn list_all(&self) -> Result<Vec<DuplicateGroup>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT id, trust_level, best_file_id, created_at, updated_at, non_transitive \
                  FROM duplicate_groups ORDER BY id ASC",
             )
@@ -122,20 +124,22 @@ impl<'a> DuplicateGroupsRepo<'a> {
 
     pub fn set_best(&self, id: i64, best: Option<FileId>, when: i64) -> Result<()> {
         self.conn
-            .execute(
+            .prepare_cached(
                 "UPDATE duplicate_groups SET best_file_id = ?1, updated_at = ?2 WHERE id = ?3",
-                params![best.map(|f| f.0), when, id],
             )
+            .map_err(map_err)?
+            .execute(params![best.map(|f| f.0), when, id])
             .map_err(map_err)?;
         Ok(())
     }
 
     pub fn add_member(&self, group_id: i64, file_id: FileId) -> Result<()> {
         self.conn
-            .execute(
+            .prepare_cached(
                 "INSERT INTO duplicate_group_members (group_id, file_id) VALUES (?1, ?2)",
-                params![group_id, file_id.0],
             )
+            .map_err(map_err)?
+            .execute(params![group_id, file_id.0])
             .map_err(map_err)?;
         Ok(())
     }
@@ -143,10 +147,11 @@ impl<'a> DuplicateGroupsRepo<'a> {
     pub fn remove_member(&self, group_id: i64, file_id: FileId) -> Result<usize> {
         let affected = self
             .conn
-            .execute(
+            .prepare_cached(
                 "DELETE FROM duplicate_group_members WHERE group_id = ?1 AND file_id = ?2",
-                params![group_id, file_id.0],
             )
+            .map_err(map_err)?
+            .execute(params![group_id, file_id.0])
             .map_err(map_err)?;
         Ok(affected)
     }
@@ -154,7 +159,7 @@ impl<'a> DuplicateGroupsRepo<'a> {
     pub fn list_members(&self, group_id: i64) -> Result<Vec<FileId>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT file_id FROM duplicate_group_members \
                  WHERE group_id = ?1 ORDER BY file_id ASC",
             )
@@ -170,7 +175,7 @@ impl<'a> DuplicateGroupsRepo<'a> {
     pub fn list_all_with_members(&self) -> Result<Vec<(DuplicateGroup, Vec<FileId>)>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT g.id, g.trust_level, g.best_file_id, g.created_at, g.updated_at, \
                         g.non_transitive, m.file_id \
                  FROM duplicate_groups g \
@@ -210,7 +215,7 @@ impl<'a> DuplicateGroupsRepo<'a> {
     ) -> Result<Vec<(DuplicateGroup, Vec<GroupMemberRecord>)>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT g.id, g.trust_level, g.best_file_id, g.created_at, g.updated_at, \
                         g.non_transitive, m.file_id, f.width_px, f.height_px, f.bitrate_bps, \
                         f.codec, f.container, f.size_bytes, f.laplacian_variance, \
@@ -258,7 +263,7 @@ impl<'a> DuplicateGroupsRepo<'a> {
         let rows = if let Some(trust) = trust {
             let mut stmt = self
                 .conn
-                .prepare(
+                .prepare_cached(
                     "SELECT id, trust_level, best_file_id, created_at, updated_at, non_transitive \
                      FROM duplicate_groups WHERE trust_level = ?1 \
                      ORDER BY id ASC LIMIT ?2 OFFSET ?3",
@@ -271,7 +276,7 @@ impl<'a> DuplicateGroupsRepo<'a> {
         } else {
             let mut stmt = self
                 .conn
-                .prepare(
+                .prepare_cached(
                     "SELECT id, trust_level, best_file_id, created_at, updated_at, non_transitive \
                      FROM duplicate_groups ORDER BY id ASC LIMIT ?1 OFFSET ?2",
                 )
@@ -307,7 +312,7 @@ impl<'a> DuplicateGroupsRepo<'a> {
     pub fn all_member_sizes(&self) -> Result<Vec<(i64, FileId, i64)>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT m.group_id, m.file_id, f.size_bytes \
                  FROM duplicate_group_members m \
                  JOIN files f ON f.id = m.file_id \
@@ -330,14 +335,14 @@ impl<'a> DuplicateGroupsRepo<'a> {
 
     pub fn find_exact_group_containing(&self, file_id: FileId) -> Result<Option<i64>> {
         self.conn
-            .query_row(
+            .prepare_cached(
                 "SELECT g.id FROM duplicate_groups g \
                  INNER JOIN duplicate_group_members m ON m.group_id = g.id \
                  WHERE m.file_id = ?1 AND g.trust_level = 'EXACT' \
                  LIMIT 1",
-                params![file_id.0],
-                |row| row.get::<_, i64>(0),
             )
+            .map_err(map_err)?
+            .query_row(params![file_id.0], |row| row.get::<_, i64>(0))
             .optional()
             .map_err(map_err)
     }
@@ -345,7 +350,7 @@ impl<'a> DuplicateGroupsRepo<'a> {
     pub fn find_groups_containing(&self, file_id: FileId) -> Result<Vec<DuplicateGroup>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT g.id, g.trust_level, g.best_file_id, g.created_at, g.updated_at, \
                         g.non_transitive \
                  FROM duplicate_groups g \
@@ -364,7 +369,7 @@ impl<'a> DuplicateGroupsRepo<'a> {
     pub fn list_exact_group_member_ids(&self) -> Result<Vec<FileId>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT DISTINCT m.file_id \
                  FROM duplicate_group_members m \
                  JOIN duplicate_groups g ON g.id = m.group_id \
@@ -382,7 +387,9 @@ impl<'a> DuplicateGroupsRepo<'a> {
 
     pub fn delete(&self, id: i64) -> Result<()> {
         self.conn
-            .execute("DELETE FROM duplicate_groups WHERE id = ?1", params![id])
+            .prepare_cached("DELETE FROM duplicate_groups WHERE id = ?1")
+            .map_err(map_err)?
+            .execute(params![id])
             .map_err(map_err)?;
         Ok(())
     }
@@ -395,23 +402,30 @@ impl<'a> DuplicateGroupsRepo<'a> {
         when: i64,
     ) -> Result<()> {
         self.conn
-            .execute(
+            .prepare_cached(
                 "INSERT INTO duplicate_groups \
                      (id, trust_level, non_transitive, created_at, updated_at) \
                  VALUES (?1, ?2, ?3, ?4, ?4)",
-                params![id, trust_level.as_text(), i64::from(non_transitive), when],
             )
+            .map_err(map_err)?
+            .execute(params![
+                id,
+                trust_level.as_text(),
+                i64::from(non_transitive),
+                when
+            ])
             .map_err(map_err)?;
         Ok(())
     }
 
     pub fn add_member_if_absent(&self, group_id: i64, file_id: FileId) -> Result<()> {
         self.conn
-            .execute(
+            .prepare_cached(
                 "INSERT OR IGNORE INTO duplicate_group_members (group_id, file_id) \
                  VALUES (?1, ?2)",
-                params![group_id, file_id.0],
             )
+            .map_err(map_err)?
+            .execute(params![group_id, file_id.0])
             .map_err(map_err)?;
         Ok(())
     }
@@ -419,10 +433,9 @@ impl<'a> DuplicateGroupsRepo<'a> {
     pub fn delete_by_trust(&self, trust: TrustLevel) -> Result<usize> {
         let affected = self
             .conn
-            .execute(
-                "DELETE FROM duplicate_groups WHERE trust_level = ?1",
-                params![trust.as_text()],
-            )
+            .prepare_cached("DELETE FROM duplicate_groups WHERE trust_level = ?1")
+            .map_err(map_err)?
+            .execute(params![trust.as_text()])
             .map_err(map_err)?;
         Ok(affected)
     }
@@ -430,10 +443,11 @@ impl<'a> DuplicateGroupsRepo<'a> {
     pub fn delete_non_transitive_by_trust(&self, trust: TrustLevel) -> Result<usize> {
         let affected = self
             .conn
-            .execute(
+            .prepare_cached(
                 "DELETE FROM duplicate_groups WHERE trust_level = ?1 AND non_transitive = 1",
-                params![trust.as_text()],
             )
+            .map_err(map_err)?
+            .execute(params![trust.as_text()])
             .map_err(map_err)?;
         Ok(affected)
     }

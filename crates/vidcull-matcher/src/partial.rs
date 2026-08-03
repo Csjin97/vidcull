@@ -321,13 +321,18 @@ impl AnchorIndex {
     }
 
     fn candidates(&self, phash: u64) -> Vec<Posting> {
-        let mut set: BTreeSet<Posting> = BTreeSet::new();
+        // A flat Vec + sort_unstable + dedup instead of a BTreeSet: same
+        // sorted-unique output, but without a tree-node allocation per
+        // candidate (see LshIndex::candidates in near.rs).
+        let mut candidates = Vec::with_capacity(32);
         self.params.for_each_band(phash, |band, value| {
             if let Some(list) = self.buckets.get(&(band, value)) {
-                set.extend(list.iter().copied());
+                candidates.extend(list.iter().copied());
             }
         });
-        set.into_iter().collect()
+        candidates.sort_unstable();
+        candidates.dedup();
+        candidates
     }
 
     #[must_use]
@@ -534,7 +539,8 @@ where
             }
             let mut examined = 0usize;
             let mut near_miss = NearMissCounts::default();
-            let alignments = index.search_inner(scenes, Some(clip_id), &mut examined, &mut near_miss);
+            let alignments =
+                index.search_inner(scenes, Some(clip_id), &mut examined, &mut near_miss);
             let matches = alignments
                 .into_iter()
                 .map(|alignment| ClipMatch {
