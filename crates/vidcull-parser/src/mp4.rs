@@ -16,11 +16,23 @@ pub fn read_mp4_tolerant_cancellable(
     path: &Path,
     cancel: Cancel<'_>,
 ) -> Result<mp4parse::MediaContext> {
+    read_mp4_tolerant_cancellable_with_len(path, cancel).map(|(context, _)| context)
+}
+
+/// `read_mp4_tolerant_cancellable`와 동일하지만, 최초 `File::open`에서 얻은 크기를
+/// 함께 반환한다. 호출자가 파일 크기가 또 필요하면 별도 `std::fs::metadata(path)`
+/// 호출 없이 이 값을 재사용할 수 있다(경로 조회를 1회로 줄임 — HDD/NAS 친화).
+pub(crate) fn read_mp4_tolerant_cancellable_with_len(
+    path: &Path,
+    cancel: Cancel<'_>,
+) -> Result<(mp4parse::MediaContext, u64)> {
+    let file = File::open(path)?;
+    let file_size_bytes = file.metadata()?.len();
     let orig = match mp4parse::read_mp4(&mut BufReader::with_capacity(
         crate::bounded::READ_BUF_CAPACITY,
-        CancelRead::new(File::open(path)?, cancel),
+        CancelRead::new(file, cancel),
     )) {
-        Ok(context) => return Ok(context),
+        Ok(context) => return Ok((context, file_size_bytes)),
         Err(e) => e,
     };
     if cancel.fired() {
@@ -33,7 +45,7 @@ pub fn read_mp4_tolerant_cancellable(
         )
         .take(boundary);
         if let Ok(context) = mp4parse::read_mp4(&mut capped) {
-            return Ok(context);
+            return Ok((context, file_size_bytes));
         }
         if cancel.fired() {
             return Err(Error::Cancelled);
@@ -163,9 +175,7 @@ pub(crate) fn probe_mp4_with_context_cancellable(
     container: ContainerKind,
     cancel: Cancel<'_>,
 ) -> Result<(VideoMetadata, mp4parse::MediaContext)> {
-    let file_size_bytes = std::fs::metadata(path)?.len();
-
-    let context = read_mp4_tolerant_cancellable(path, cancel)?;
+    let (context, file_size_bytes) = read_mp4_tolerant_cancellable_with_len(path, cancel)?;
     let metadata = probe_mp4_from_context(&context, path, container, file_size_bytes)?;
     Ok((metadata, context))
 }

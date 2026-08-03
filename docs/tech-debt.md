@@ -6,7 +6,7 @@
 
 | 상태 | 위치 | 내용 |
 | --- | --- | --- |
-| open | `crates/vidcull-parser/src/mp4.rs:166` | `probe_mp4_with_context_cancellable`가 같은 파일을 두 번 연다(크기 확인용 1회 + `read_mp4_tolerant_cancellable`에서 1회). 네이티브 MP4 파싱의 가장 뜨거운 경로. |
+| done | `crates/vidcull-parser/src/mp4.rs:166` | `probe_mp4_with_context_cancellable`가 같은 파일을 두 번 연다(크기 확인용 1회 + `read_mp4_tolerant_cancellable`에서 1회) — `read_mp4_tolerant_cancellable_with_len`을 도입해 최초 `File::open` 핸들에서 `.metadata()`로 크기를 얻도록 전환, 별도 `std::fs::metadata(path)` 호출 제거(2026-08-03). `bitrate_uses_file_size_and_duration` 등 mp4 유닛 테스트 34개 통과로 확인. |
 | done | `crates/vidcull-matcher/src/partial.rs:323-331` (`AnchorIndex::candidates`) | `BTreeSet<Posting>` 안티패턴 — `near.rs`의 `LshIndex::candidates`에서 이미 고친 것과 동일. `search_inner`의 파일×씬마다 호출되는 hot loop. 현재 코드는 이미 `Vec::with_capacity + sort_unstable + dedup`로 전환돼 있음(2026-08-03 재확인). |
 | done | `crates/vidcull-db/src/repo/duplicate_groups.rs` | 파일 전체가 `prepare_cached` 전환에서 빠짐 — 현재는 파일 전체가 `prepare_cached`로 전환돼 있음(2026-08-03 재확인). |
 | done | `crates/vidcull-db/src/repo/files.rs:242,265` (`find_active_twin_by_hash`, `list_active_by_hash`) | 같은 파일의 다른 메서드는 이미 캐싱했는데 이 둘만 빠짐 — 현재는 두 메서드 모두 `prepare_cached`로 전환돼 있음(2026-08-03 재확인). |
