@@ -1,0 +1,32 @@
+[package]
+name = "vidcull-scanner"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Filesystem walker, change detection, and metadata collection for vidcull."
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "allow"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+
+[dependencies]
+vidcull-core = { path = "../vidcull-core" }
+vidcull-parser = { path = "../vidcull-parser" }
+walkdir = "2"
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }
+
+[dev-dependencies]
+vidcull-db = { path = "../vidcull-db" }
+tempfile = "3"
+filetime = "0.2"

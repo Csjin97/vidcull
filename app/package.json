@@ -1,0 +1,50 @@
+{
+  "name": "vidcull-ui",
+  "version": "0.3.0",
+  "description": "Tauri desktop frontend for the vidcull video deduplication engine.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "verify:visual": "node scripts/verify-playground.mjs",
+    "verify:scenarios": "node scripts/verify-scenarios.mjs",
+    "verify:review": "node scripts/verify-review.mjs",
+    "verify:options": "node scripts/verify-options.mjs",
+    "verify:live-thumb": "node scripts/verify-live-thumbnail.mjs",
+    "verify:live-delete": "node scripts/verify-live-delete.mjs",
+    "verify:live-tray": "node scripts/verify-live-tray.mjs",
+    "verify:error-handler": "node scripts/verify-error-handler.mjs",
+    "verify:screen-lock": "node scripts/verify-screen-lock.mjs",
+    "tauri": "tauri",
+    "build:installer": "powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@tauri-apps/api": "^2.1.1",
+    "bits-ui": "^2.18.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.61.1",
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@tauri-apps/cli": "^2.1.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/svelte": "^5.3.1",
+    "@tsconfig/svelte": "^5.0.8",
+    "@types/node": "^22.19.19",
+    "jsdom": "^29.1.1",
+    "playwright": "^1.60.0",
+    "svelte": "^5.55.10",
+    "svelte-check": "^4.4.8",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.3",
+    "vitest": "^3.2.4"
+  }
+}

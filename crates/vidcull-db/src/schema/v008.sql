@@ -1,0 +1,3 @@
+ALTER TABLE delete_batches
+    ADD COLUMN status TEXT NOT NULL DEFAULT 'COMMITTED'
+        CHECK (status IN ('PENDING', 'COMMITTED'));

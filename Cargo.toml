@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/vidcull-core",
+    "crates/vidcull-db",
+    "crates/vidcull-scanner",
+    "crates/vidcull-fingerprint",
+    "crates/vidcull-matcher",
+    "crates/vidcull-membench",
+    "crates/vidcull-parser",
+    "crates/vidcull-synth",
+    "crates/vidcull-thumb",
+    "crates/vidcull-daemon",
+    "crates/vidcull-ipc",
+]
+exclude = [
+    "crates/vidcull-decode-sidecar",
+]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.85"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+authors = ["vidcull contributors"]
+repository = "https://github.com/anonymous/vidcull"
+
+[workspace.dependencies]
+proptest = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.bench]
+lto = "thin"
+codegen-units = 1

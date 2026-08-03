@@ -1,0 +1,14 @@
+[package]
+name = "vidcull-decode-sidecar"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+
+
+[dependencies]
+ffmpeg-next = "7.1"
+
+[[bin]]
+name = "vidcull-decode-sidecar"
+path = "src/main.rs"

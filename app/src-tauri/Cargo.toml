@@ -1,0 +1,42 @@
+[package]
+name = "vidcull-ui"
+version = "0.3.0"
+edition = "2021"
+description = "Tauri desktop frontend for the vidcull video deduplication engine."
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+authors = ["vidcull contributors"]
+repository = "https://github.com/anonymous/vidcull"
+
+[workspace]
+
+[lib]
+name = "vidcull_ui_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+vidcull-ipc = { path = "../../crates/vidcull-ipc" }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-window-state = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rfd = "0.15"
+tokio = { version = "1", features = ["sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+tracing-appender = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "time"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+strip = true

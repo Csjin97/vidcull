@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "vidcull",
+  "version": "0.3.0",
+  "identifier": "dev.vidcull.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "beforeBundleCommand": "node scripts/verify-build-freshness.mjs",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "vidcull",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "resizable": true,
+        "theme": "Dark"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "publisher": "vidcull contributors",
+    "externalBin": ["binaries/vidcull-daemon", "binaries/vidcull-decode-sidecar"],
+    "resources": {
+      "ffmpeg-runtime/ffmpeg.exe": "ffmpeg.exe",
+      "ffmpeg-runtime/ffprobe.exe": "ffprobe.exe",
+      "ffmpeg-runtime/avcodec-61.dll": "avcodec-61.dll",
+      "ffmpeg-runtime/avformat-61.dll": "avformat-61.dll",
+      "ffmpeg-runtime/avutil-59.dll": "avutil-59.dll",
+      "ffmpeg-runtime/swscale-8.dll": "swscale-8.dll",
+      "ffmpeg-runtime/swresample-5.dll": "swresample-5.dll",
+      "ffmpeg-runtime/avfilter-10.dll": "avfilter-10.dll",
+      "ffmpeg-runtime/avdevice-61.dll": "avdevice-61.dll",
+      "windows/THIRD-PARTY-FFMPEG.txt": "THIRD-PARTY-FFMPEG.txt"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./windows/installer-hooks.nsh"
+      }
+    }
+  }
+}

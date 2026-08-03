@@ -1,0 +1,3 @@
+msrv = "1.85"
+avoid-breaking-exported-api = true
+doc-valid-idents = ["..", "FFmpeg", "SubRip", "WebM", "SplitMix64", "MP4", "MKV"]

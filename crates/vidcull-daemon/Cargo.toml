@@ -1,0 +1,75 @@
+[package]
+name = "vidcull-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Background indexing daemon binary for vidcull."
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "allow"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+
+[lib]
+name = "vidcull_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vidcull-daemon"
+path = "src/main.rs"
+
+[dependencies]
+vidcull-core = { path = "../vidcull-core" }
+vidcull-db = { path = "../vidcull-db" }
+vidcull-scanner = { path = "../vidcull-scanner" }
+vidcull-ipc = { path = "../vidcull-ipc" }
+vidcull-fingerprint = { path = "../vidcull-fingerprint" }
+vidcull-matcher = { path = "../vidcull-matcher" }
+vidcull-parser = { path = "../vidcull-parser" }
+vidcull-thumb = { path = "../vidcull-thumb" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync"] }
+blake3 = "1"
+getrandom = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry", "chrono"] }
+tracing-appender = "0.2"
+notify = "8"
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }
+trash = "5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_SystemInformation",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Ioctl",
+    "Win32_System_IO",
+] }
+winreg = "0.55"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+vidcull-synth = { path = "../vidcull-synth" }
+vidcull-thumb = { path = "../vidcull-thumb" }
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+mp4parse = "0.17"
+
+

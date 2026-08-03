@@ -1,0 +1,13 @@
+*.rs    text eol=lf
+
+*.sh         text eol=lf
+.githooks/** text eol=lf
+
+*.gray8 binary
+*.y8    binary
+*.h264  binary
+*.hevc  binary
+*.mp4   binary
+*.mkv   binary
+*.webm  binary
+*.mpg   binary

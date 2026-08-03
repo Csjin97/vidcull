@@ -1,0 +1,23 @@
+
+[ffmpeg]
+version = "n7.1"
+build = "n7.1.4-7-gadcf20da26-20260528"
+source = "BtbN/FFmpeg-Builds"   # https://github.com/BtbN/FFmpeg-Builds
+license = "LGPL"                 # windows: lgpl-shared (ffmpeg.exe subprocess + libav DLLs sidecar dynamic-link). linux: still gpl (no sidecar yet).
+
+
+[ffmpeg.platforms.windows-x86_64]
+# The dated autobuild tag this used to point to (autobuild-2026-06-17-14-17) was
+# pruned upstream (BtbN only keeps a rolling window of dated autobuilds), so this
+# now tracks the "latest" tag the linux-x86_64 entry below already uses. Verified
+# 2026-07-25: same n7.1 version line, same DLL suffix numbers (avcodec-61 etc.),
+# so no other file in this repo needs updating.
+url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-lgpl-shared-7.1.zip"
+zip_sha256 = "9E9E98A3A698D4FDD1C845473E7221C393689E1C29253A2F6AF97B78CC948916"
+extract = ["ffmpeg.exe", "ffprobe.exe", "avcodec-61.dll", "avformat-61.dll", "avutil-59.dll", "swscale-8.dll", "swresample-5.dll", "avfilter-10.dll", "avdevice-61.dll"]
+
+[ffmpeg.platforms.linux-x86_64]
+url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz"
+tarxz_sha256 = "6D0F296491DAE89FC8548DDE50F89954CA1F969057671E196E2276B4A3F80A70"
+extract = ["ffmpeg", "ffprobe"]
+

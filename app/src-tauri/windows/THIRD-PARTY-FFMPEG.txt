@@ -1,0 +1,39 @@
+FFmpeg / libav 구성요소 고지 (Third-Party Notice)
+==================================================
+
+vidcull 인스톨러는 다음 FFmpeg 공유 라이브러리와 실행 파일을 동봉합니다:
+
+  - libavcodec (avcodec-61.dll)
+  - libavformat (avformat-61.dll)
+  - libavutil (avutil-59.dll)
+  - libswscale (swscale-8.dll)
+  - libswresample (swresample-5.dll)
+  - libavfilter (avfilter-10.dll)
+  - libavdevice (avdevice-61.dll)
+  - ffmpeg.exe / ffprobe.exe
+
+이들은 **GNU Lesser General Public License v2.1 이상(LGPL)** 으로 빌드된
+바이너리이며, GPL 구성요소는 포함되지 않습니다(--enable-gpl 없음;
+예: x264/x265 미포함).
+
+사용 방식
+---------
+  - 공유 라이브러리(libav*)는 선택적 가속 컴포넌트 `vidcull-decode-sidecar`가
+    **동적 링크**합니다.
+  - `ffmpeg.exe`는 데몬이 **별도 프로세스로 호출**(mere aggregation)합니다.
+  - vidcull 자체 코드는 libav를 정적 링크하지 않습니다.
+
+LGPL 준수 사항
+--------------
+  - 정확한 빌드의 소스 코드는 업스트림 배포처에서 제공됩니다:
+    https://github.com/BtbN/FFmpeg-Builds
+    (릴리스 autobuild-2026-06-17-14-17,
+     ffmpeg-n7.1.4-39-ga5faeca88f-win64-lgpl-shared-7.1)
+  - 공유 라이브러리는 **별도의 교체 가능한 .dll 파일**로 제공됩니다(LGPL §4
+    relink 요건). 호환되는 빌드로 교체할 수 있습니다.
+  - LGPL 전문: https://www.gnu.org/licenses/lgpl-2.1.html
+
+vidcull 본체의 라이선스
+-----------------------
+vidcull 자체는 PolyForm Noncommercial 1.0.0 라이선스를 따릅니다(루트 LICENSE
+참조). LGPL은 동적 링크 시 본체 라이선스에 영향을 주지 않습니다.

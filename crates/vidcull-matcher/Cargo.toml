@@ -1,0 +1,40 @@
+[package]
+name = "vidcull-matcher"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Duplicate detection, partial-clip matching, ranking, and trust scoring."
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "allow"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+
+[dependencies]
+vidcull-core = { path = "../vidcull-core" }
+vidcull-db = { path = "../vidcull-db" }
+vidcull-fingerprint = { path = "../vidcull-fingerprint" }
+vidcull-ipc = { path = "../vidcull-ipc" }
+postcard = { version = "1", features = ["alloc"] }
+tracing = "0.1"
+rayon = "1"
+
+[dev-dependencies]
+vidcull-parser = { path = "../vidcull-parser" }
+vidcull-synth = { path = "../vidcull-synth" }
+proptest = { workspace = true }
+tempfile = "3"
+criterion = { workspace = true }
+
+[[bench]]
+name = "matching"
+harness = false

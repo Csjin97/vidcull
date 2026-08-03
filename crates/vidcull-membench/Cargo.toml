@@ -1,0 +1,60 @@
+[package]
+name = "vidcull-membench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Phase 11.3 measurement harness: peak-allocation probe for the grouping pass (LSH / anchor index, §B) + full-rebuild cost on a file-backed DB, and an ffmpeg-gated sparse-decode timing / fallback-overhead probe (§A / §F4)."
+
+[lints.rust]
+missing_docs = "allow"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+
+[dependencies]
+vidcull-core = { path = "../vidcull-core" }
+vidcull-db = { path = "../vidcull-db" }
+vidcull-fingerprint = { path = "../vidcull-fingerprint" }
+vidcull-matcher = { path = "../vidcull-matcher" }
+vidcull-parser = { path = "../vidcull-parser" }
+vidcull-synth = { path = "../vidcull-synth" }
+tempfile = "3"
+
+[[bin]]
+name = "mem_probe"
+path = "src/bin/mem_probe.rs"
+
+[[bin]]
+name = "rebuild_cost"
+path = "src/bin/rebuild_cost.rs"
+
+[[bin]]
+name = "partial_rebuild_cost"
+path = "src/bin/partial_rebuild_cost.rs"
+
+[[bin]]
+name = "decode_timing"
+path = "src/bin/decode_timing.rs"
+
+[[bin]]
+name = "worker_scaling"
+path = "src/bin/worker_scaling.rs"
+
+[[bin]]
+name = "partial_stage_profile"
+path = "src/bin/partial_stage_profile.rs"
+
+[[bin]]
+name = "read_serialization"
+path = "src/bin/read_serialization.rs"
+
+[[bin]]
+name = "near_miss_probe"
+path = "src/bin/near_miss_probe.rs"
