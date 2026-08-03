@@ -213,6 +213,25 @@ describe("validateProgressSnapshot", () => {
     expect(without.partial_failed).toBeUndefined();
   });
 
+  it("passes through groups_revision when present, optional otherwise", () => {
+    const withField = validateProgressSnapshot("daemon_progress", {
+      pending: 0,
+      running: 0,
+      done: 100,
+      failed: 0,
+      groups_revision: 42,
+    });
+    expect(withField.groups_revision).toBe(42);
+
+    const without = validateProgressSnapshot("daemon_progress", {
+      pending: 0,
+      running: 0,
+      done: 100,
+      failed: 0,
+    });
+    expect(without.groups_revision).toBeUndefined();
+  });
+
   it("throws when partial_failed is not a number", () => {
     expect(() =>
       validateProgressSnapshot("daemon_progress", {

@@ -122,6 +122,11 @@ pub struct ProgressSnapshot {
     pub folder_scanning: bool,
     #[serde(default)]
     pub scan_discovered: u64,
+    /// `duplicate_groups` 구성이 바뀔 수 있는 작업(재매칭 커밋·삭제·undo)마다 하나씩
+    /// 올라가는 단조 증가 카운터. UI는 이 값이 안 바뀌었으면 클러스터 목록을
+    /// 다시 받지 않고 건너뛸 수 있다.
+    #[serde(default)]
+    pub groups_revision: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

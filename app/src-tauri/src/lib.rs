@@ -43,9 +43,52 @@ fn daemon_endpoint() -> String {
 }
 
 pub(crate) struct DaemonConn {
-    client: Mutex<Option<(IpcClient, u32)>>,
+    progress_client: Mutex<Option<(IpcClient, u32)>>,
     progress_cache: std::sync::Mutex<Option<(ProgressSnapshot, std::time::Instant)>>,
+    query_client: Mutex<Option<(IpcClient, u32)>>,
+    action_client: Mutex<Option<(IpcClient, u32)>>,
     thumb_client: Mutex<Option<(IpcClient, u32)>>,
+}
+
+/// 요청 종류별로 독립된 연결(lane)에 태운다 — 조회가 오래 걸려도 액션(삭제 등)이나
+/// progress 폴링이 같은 커넥션 mutex를 기다리며 막히지 않도록 분리한다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IpcLane {
+    Progress,
+    Query,
+    Action,
+    Thumb,
+}
+
+impl IpcLane {
+    fn label(self) -> &'static str {
+        match self {
+            IpcLane::Progress => "progress",
+            IpcLane::Query => "query",
+            IpcLane::Action => "action",
+            IpcLane::Thumb => "thumb",
+        }
+    }
+
+    /// lane별 요청 timeout — 데몬이 멈춰도 UI가 무한 대기하지 않도록 한다.
+    /// action(대량 삭제 등)은 다른 lane보다 오래 걸릴 수 있어 여유를 더 둔다.
+    fn timeout(self) -> std::time::Duration {
+        match self {
+            IpcLane::Progress => std::time::Duration::from_secs(10),
+            IpcLane::Query => std::time::Duration::from_secs(30),
+            IpcLane::Action => std::time::Duration::from_secs(120),
+            IpcLane::Thumb => std::time::Duration::from_secs(20),
+        }
+    }
+}
+
+fn lane_for(request: &Request) -> IpcLane {
+    match request {
+        Request::Progress => IpcLane::Progress,
+        Request::Action(_) => IpcLane::Action,
+        Request::Thumbnail { .. } => IpcLane::Thumb,
+        _ => IpcLane::Query,
+    }
 }
 
 const PROTOCOL_MISMATCH_PREFIX: &str = "PROTOCOL_MISMATCH:";
@@ -100,11 +143,11 @@ fn request_kind(request: &Request) -> &'static str {
     }
 }
 
-fn record_ipc_call(kind: &'static str, wait_ms: u64, hold_ms: u64) {
+fn record_ipc_call(lane: &'static str, kind: &'static str, wait_ms: u64, hold_ms: u64) {
     if wait_ms > SLOW_IPC_CALL_MS || hold_ms > SLOW_IPC_CALL_MS {
-        tracing::warn!(kind, wait_ms, hold_ms, "daemon IPC mutex wait/hold");
+        tracing::warn!(lane, kind, wait_ms, hold_ms, "daemon IPC mutex wait/hold");
     } else {
-        tracing::debug!(kind, wait_ms, hold_ms, "daemon IPC mutex wait/hold");
+        tracing::debug!(lane, kind, wait_ms, hold_ms, "daemon IPC mutex wait/hold");
     }
 }
 
@@ -139,6 +182,7 @@ fn record_fast_lane_stale_skip(cache_age_ms: u64) {
 async fn request_with_guard(
     slot: &mut Option<(IpcClient, u32)>,
     request: &Request,
+    timeout: std::time::Duration,
 ) -> Result<Response, String> {
     for phase in ["connect", "reconnect"] {
         if slot.is_none() {
@@ -151,13 +195,17 @@ async fn request_with_guard(
 
         version_gate(*daemon_version, request)?;
 
-        match client.request(request).await {
-            Ok(resp) => return Ok(resp),
-            Err(err) => {
+        match tokio::time::timeout(timeout, client.request(request)).await {
+            Ok(Ok(resp)) => return Ok(resp),
+            Ok(Err(err)) => {
                 *slot = None;
                 if phase == "reconnect" {
                     return Err(err.to_string());
                 }
+            }
+            Err(_elapsed) => {
+                *slot = None;
+                return Err(format!("daemon IPC request timed out after {timeout:?}"));
             }
         }
     }
@@ -167,9 +215,20 @@ async fn request_with_guard(
 impl DaemonConn {
     fn new() -> Self {
         Self {
-            client: Mutex::new(None),
+            progress_client: Mutex::new(None),
             progress_cache: std::sync::Mutex::new(None),
+            query_client: Mutex::new(None),
+            action_client: Mutex::new(None),
             thumb_client: Mutex::new(None),
+        }
+    }
+
+    fn slot(&self, lane: IpcLane) -> &Mutex<Option<(IpcClient, u32)>> {
+        match lane {
+            IpcLane::Progress => &self.progress_client,
+            IpcLane::Query => &self.query_client,
+            IpcLane::Action => &self.action_client,
+            IpcLane::Thumb => &self.thumb_client,
         }
     }
 
@@ -184,21 +243,25 @@ impl DaemonConn {
     }
 
     pub(crate) async fn adopt(&self, client: IpcClient, daemon_version: u32) {
-        *self.client.lock().await = Some((client, daemon_version));
+        // pre-spawn probe에서 확보한 연결은 query lane에 넘긴다 — probe 이후 첫
+        // 실사용 요청은 대개 GetSettings/ClusterSummaries 등 query 계열이라
+        // 재연결 왕복 한 번을 아낀다. 다른 lane은 첫 사용 시 지연 연결된다.
+        *self.query_client.lock().await = Some((client, daemon_version));
     }
 
     pub(crate) async fn request(&self, request: &Request) -> Result<Response, String> {
         let kind = request_kind(request);
-        let is_progress = matches!(request, Request::Progress);
+        let lane = lane_for(request);
+        let is_progress = lane == IpcLane::Progress;
 
         if is_progress {
-            match self.client.try_lock() {
+            match self.progress_client.try_lock() {
                 Ok(mut guard) => {
                     let hold_started = std::time::Instant::now();
-                    let outcome = request_with_guard(&mut guard, request).await;
+                    let outcome = request_with_guard(&mut guard, request, lane.timeout()).await;
                     drop(guard);
                     self.update_progress_cache(&outcome);
-                    record_ipc_call(kind, 0, duration_ms(hold_started.elapsed()));
+                    record_ipc_call(lane.label(), kind, 0, duration_ms(hold_started.elapsed()));
                     return outcome;
                 }
                 Err(_) => {
@@ -221,24 +284,31 @@ impl DaemonConn {
 
         let wait_started = std::time::Instant::now();
         let mut guard: tokio::sync::MutexGuard<'_, Option<(IpcClient, u32)>> =
-            self.client.lock().await;
+            self.slot(lane).lock().await;
         let wait_ms = duration_ms(wait_started.elapsed());
         let hold_started = std::time::Instant::now();
 
-        let outcome = request_with_guard(&mut guard, request).await;
+        let outcome = request_with_guard(&mut guard, request, lane.timeout()).await;
         drop(guard);
         if is_progress {
             self.update_progress_cache(&outcome);
         }
-        record_ipc_call(kind, wait_ms, duration_ms(hold_started.elapsed()));
+        record_ipc_call(
+            lane.label(),
+            kind,
+            wait_ms,
+            duration_ms(hold_started.elapsed()),
+        );
         outcome
     }
 
     pub(crate) async fn request_stream(&self, request: &Request) -> Result<Vec<Response>, String> {
+        // GroupDetail/ClusterDetail만 쓰는 스트리밍 조회 — query lane에 태운다.
         let kind = request_kind(request);
+        let timeout = IpcLane::Query.timeout();
         let wait_started = std::time::Instant::now();
         let mut guard: tokio::sync::MutexGuard<'_, Option<(IpcClient, u32)>> =
-            self.client.lock().await;
+            self.query_client.lock().await;
         let wait_ms = duration_ms(wait_started.elapsed());
         let hold_started = std::time::Instant::now();
 
@@ -254,13 +324,19 @@ impl DaemonConn {
                 if let Err(err) = version_gate(*daemon_version, request) {
                     break 'attempt Err(err);
                 }
-                match client.request_stream(request).await {
-                    Ok(frames) => break 'attempt Ok(frames),
-                    Err(err) => {
+                match tokio::time::timeout(timeout, client.request_stream(request)).await {
+                    Ok(Ok(frames)) => break 'attempt Ok(frames),
+                    Ok(Err(err)) => {
                         *guard = None;
                         if phase == "reconnect" {
                             break 'attempt Err(err.to_string());
                         }
+                    }
+                    Err(_elapsed) => {
+                        *guard = None;
+                        break 'attempt Err(format!(
+                            "daemon IPC request timed out after {timeout:?}"
+                        ));
                     }
                 }
             }
@@ -268,7 +344,12 @@ impl DaemonConn {
         };
 
         drop(guard);
-        record_ipc_call(kind, wait_ms, duration_ms(hold_started.elapsed()));
+        record_ipc_call(
+            IpcLane::Query.label(),
+            kind,
+            wait_ms,
+            duration_ms(hold_started.elapsed()),
+        );
         outcome
     }
 
@@ -278,9 +359,14 @@ impl DaemonConn {
         let mut guard = self.thumb_client.lock().await;
         let wait_ms = duration_ms(wait_started.elapsed());
         let hold_started = std::time::Instant::now();
-        let outcome = request_with_guard(&mut guard, request).await;
+        let outcome = request_with_guard(&mut guard, request, IpcLane::Thumb.timeout()).await;
         drop(guard);
-        record_ipc_call(kind, wait_ms, duration_ms(hold_started.elapsed()));
+        record_ipc_call(
+            IpcLane::Thumb.label(),
+            kind,
+            wait_ms,
+            duration_ms(hold_started.elapsed()),
+        );
         outcome
     }
 }
@@ -344,7 +430,7 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner) =
             Some((cached_snapshot.clone(), std::time::Instant::now()));
 
-        let _guard = conn.client.lock().await;
+        let _guard = conn.progress_client.lock().await;
 
         let result = tokio::time::timeout(
             std::time::Duration::from_millis(200),
@@ -366,7 +452,7 @@ mod tests {
 
         let holder_conn = std::sync::Arc::clone(&conn);
         let holder = tokio::spawn(async move {
-            let _guard = holder_conn.client.lock().await;
+            let _guard = holder_conn.progress_client.lock().await;
             tokio::time::sleep(std::time::Duration::from_millis(HOLD_MS)).await;
         });
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -403,7 +489,7 @@ mod tests {
 
         let holder_conn = std::sync::Arc::clone(&conn);
         let holder = tokio::spawn(async move {
-            let _guard = holder_conn.client.lock().await;
+            let _guard = holder_conn.progress_client.lock().await;
             tokio::time::sleep(std::time::Duration::from_millis(HOLD_MS)).await;
         });
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -422,20 +508,92 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn thumbnail_connection_does_not_block_primary() {
+    async fn thumbnail_connection_does_not_block_query() {
         let conn = DaemonConn::new();
         let thumb_held = conn.thumb_client.lock().await;
         assert!(
-            conn.client.try_lock().is_ok(),
-            "primary client mutex must stay free while a thumbnail holds its own connection"
+            conn.query_client.try_lock().is_ok(),
+            "query mutex must stay free while a thumbnail holds its own connection"
         );
         drop(thumb_held);
-        let primary_held = conn.client.lock().await;
+        let query_held = conn.query_client.lock().await;
         assert!(
             conn.thumb_client.try_lock().is_ok(),
-            "thumbnail connection must stay free while the primary is busy"
+            "thumbnail connection must stay free while a query is busy"
         );
-        drop(primary_held);
+        drop(query_held);
+    }
+
+    #[tokio::test]
+    async fn action_lane_does_not_block_query_lane_and_vice_versa() {
+        let conn = DaemonConn::new();
+
+        let action_held = conn.action_client.lock().await;
+        assert!(
+            conn.query_client.try_lock().is_ok(),
+            "an in-flight action (e.g. bulk delete) must not block query requests"
+        );
+        drop(action_held);
+
+        let query_held = conn.query_client.lock().await;
+        assert!(
+            conn.action_client.try_lock().is_ok(),
+            "an in-flight query (e.g. a large ListGroups) must not block action requests"
+        );
+        drop(query_held);
+    }
+
+    #[tokio::test]
+    async fn progress_lane_is_independent_of_query_and_action_lanes() {
+        let conn = DaemonConn::new();
+
+        let query_held = conn.query_client.lock().await;
+        assert!(
+            conn.progress_client.try_lock().is_ok(),
+            "progress polling must not block on a busy query lane"
+        );
+        drop(query_held);
+
+        let action_held = conn.action_client.lock().await;
+        assert!(
+            conn.progress_client.try_lock().is_ok(),
+            "progress polling must not block on a busy action lane"
+        );
+        drop(action_held);
+    }
+
+    #[test]
+    fn lane_for_routes_each_request_kind_to_the_expected_lane() {
+        assert_eq!(lane_for(&Request::Progress).label(), "progress");
+        assert_eq!(
+            lane_for(&Request::Thumbnail { file_id: 1 }).label(),
+            "thumb"
+        );
+        assert_eq!(
+            lane_for(&Request::Action(
+                vidcull_ipc::protocol::Action::UndoLastDelete
+            ))
+            .label(),
+            "action"
+        );
+        for query_request in [
+            Request::Ping,
+            Request::GetSettings,
+            Request::ListGroups {
+                trust: None,
+                limit: 10,
+                offset: 0,
+            },
+            Request::GroupDetail { group_id: 1 },
+            Request::ClusterDetail { cluster_id: 1 },
+            Request::StreamLogs { max_records: 10 },
+        ] {
+            assert_eq!(
+                lane_for(&query_request).label(),
+                "query",
+                "expected {query_request:?} to route to the query lane"
+            );
+        }
     }
 
     #[test]

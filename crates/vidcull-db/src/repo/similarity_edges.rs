@@ -45,25 +45,26 @@ impl<'a> SimilarityEdgesRepo<'a> {
         };
         let span = edge.partial_span.as_ref();
         self.conn
-            .execute(
+            .prepare_cached(
                 "INSERT INTO similarity_edges \
                  (group_id, file_a, file_b, score_x1000, clip_start_ms, clip_end_ms, \
                   source_start_ms, source_end_ms, matched_scenes, clip_scenes, intro_outro) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![
-                    edge.group_id,
-                    a.0,
-                    b.0,
-                    edge.score_x1000,
-                    span.map(|s| span_to_i64(s.clip_start_ms)),
-                    span.map(|s| span_to_i64(s.clip_end_ms)),
-                    span.map(|s| span_to_i64(s.source_start_ms)),
-                    span.map(|s| span_to_i64(s.source_end_ms)),
-                    span.map(|s| scenes_to_i64(s.matched_scenes)),
-                    span.map(|s| scenes_to_i64(s.clip_scenes)),
-                    i64::from(edge.intro_outro),
-                ],
             )
+            .map_err(map_err)?
+            .execute(params![
+                edge.group_id,
+                a.0,
+                b.0,
+                edge.score_x1000,
+                span.map(|s| span_to_i64(s.clip_start_ms)),
+                span.map(|s| span_to_i64(s.clip_end_ms)),
+                span.map(|s| span_to_i64(s.source_start_ms)),
+                span.map(|s| span_to_i64(s.source_end_ms)),
+                span.map(|s| scenes_to_i64(s.matched_scenes)),
+                span.map(|s| scenes_to_i64(s.clip_scenes)),
+                i64::from(edge.intro_outro),
+            ])
             .map_err(map_err)?;
         Ok(())
     }
@@ -71,7 +72,7 @@ impl<'a> SimilarityEdgesRepo<'a> {
     pub fn list_for_group(&self, group_id: i64) -> Result<Vec<SimilarityEdge>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT group_id, file_a, file_b, score_x1000, clip_start_ms, clip_end_ms, \
                  source_start_ms, source_end_ms, matched_scenes, clip_scenes, intro_outro \
                  FROM similarity_edges WHERE group_id = ?1 \
@@ -89,7 +90,7 @@ impl<'a> SimilarityEdgesRepo<'a> {
     pub fn list_by_trust(&self, trust: TrustLevel) -> Result<Vec<SimilarityEdge>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT e.group_id, e.file_a, e.file_b, e.score_x1000, e.clip_start_ms, \
                  e.clip_end_ms, e.source_start_ms, e.source_end_ms, e.matched_scenes, \
                  e.clip_scenes, e.intro_outro \

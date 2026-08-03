@@ -2,9 +2,9 @@ use std::sync::Mutex;
 
 use tauri::menu::MenuItem;
 use tauri::{
+    AppHandle, Manager, Wry,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Wry,
 };
 
 const MENU_OPEN: &str = "tray-open";

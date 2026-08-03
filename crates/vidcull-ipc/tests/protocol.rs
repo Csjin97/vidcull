@@ -139,6 +139,7 @@ fn every_response_variant_round_trips() {
         partial_failed: 4,
         folder_scanning: false,
         scan_discovered: 0,
+        groups_revision: 42,
     }));
     round_trip_response(&Response::Groups(vec![
         GroupSummary {

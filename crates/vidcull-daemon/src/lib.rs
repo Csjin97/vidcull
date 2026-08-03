@@ -397,7 +397,7 @@ impl Daemon {
                     .unwrap_or_else(PoisonError::into_inner)
                     .remove(&id);
                 if is_removal {
-                    let _ = repo.mark_done(id, now);
+                    repo.mark_done(id, now)?;
                     tracing::info!(
                         id,
                         ran_secs,
@@ -839,7 +839,26 @@ impl Daemon {
                                         };
 
                                         if task.enqueued_at > now_val {
-                                            let _ = repo.requeue_busy_task(task.id, task.enqueued_at, task.attempts - 1);
+                                            if let Err(e) = repo.requeue_busy_task(
+                                                task.id,
+                                                task.enqueued_at,
+                                                task.attempts - 1,
+                                            ) {
+                                                let mut guard = error_signal
+                                                    .lock()
+                                                    .unwrap_or_else(PoisonError::into_inner);
+                                                if guard.is_none() {
+                                                    *guard = Some(e);
+                                                }
+                                                tracing::debug!(
+                                                    stage = "worker_lifecycle",
+                                                    worker_idx,
+                                                    local_done,
+                                                    reason = "error",
+                                                    "parallel worker exiting",
+                                                );
+                                                break;
+                                            }
                                             if record_no_progress_cycle(&mut no_progress_cycles) {
                                                 tracing::debug!(
                                                     stage = "worker_lifecycle",
@@ -973,7 +992,26 @@ impl Daemon {
                                             }
                                             Err(Error::Busy(reason)) => {
                                                 let backoff_secs = busy_backoff_secs(&reason);
-                                                let _ = repo.requeue_busy_task(id, now_val + backoff_secs, task.attempts - 1);
+                                                if let Err(e) = repo.requeue_busy_task(
+                                                    id,
+                                                    now_val + backoff_secs,
+                                                    task.attempts - 1,
+                                                ) {
+                                                    let mut guard = error_signal
+                                                        .lock()
+                                                        .unwrap_or_else(PoisonError::into_inner);
+                                                    if guard.is_none() {
+                                                        *guard = Some(e);
+                                                    }
+                                                    tracing::debug!(
+                                                        stage = "worker_lifecycle",
+                                                        worker_idx,
+                                                        local_done,
+                                                        reason = "error",
+                                                        "parallel worker exiting",
+                                                    );
+                                                    break;
+                                                }
                                                 {
                                                     let mut counts = busy_counts_arc
                                                         .lock()
@@ -1006,11 +1044,29 @@ impl Daemon {
                                                 .unwrap_or(i64::MAX);
                                                 busy_counts_arc.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
                                                 let lifecycle_reason = if cancel_control.is_path_removed(&change.path) {
-                                                    let _ = repo.mark_done(id, now_val);
-                                                    tracing::info!(id, ran_secs, "in-flight decode cancelled by folder removal — task dropped");
-                                                    "folder_removed"
+                                                    if let Err(e) = repo.mark_done(id, now_val) {
+                                                        let mut guard = error_signal
+                                                            .lock()
+                                                            .unwrap_or_else(PoisonError::into_inner);
+                                                        if guard.is_none() {
+                                                            *guard = Some(e);
+                                                        }
+                                                        "error"
+                                                    } else {
+                                                        tracing::info!(id, ran_secs, "in-flight decode cancelled by folder removal — task dropped");
+                                                        "folder_removed"
+                                                    }
+                                                } else if let Err(e) =
+                                                    repo.requeue_busy_task(id, now_val, task.attempts - 1)
+                                                {
+                                                    let mut guard = error_signal
+                                                        .lock()
+                                                        .unwrap_or_else(PoisonError::into_inner);
+                                                    if guard.is_none() {
+                                                        *guard = Some(e);
+                                                    }
+                                                    "error"
                                                 } else {
-                                                    let _ = repo.requeue_busy_task(id, now_val, task.attempts - 1);
                                                     tracing::info!(id, ran_secs, "indexing paused; in-flight decode cancelled — task requeued");
                                                     "pause"
                                                 };
@@ -1463,6 +1519,75 @@ mod tests {
             busy_backoff_secs("some genuinely-locked-file reason, not a gate"),
             30,
             "the unlisted (locked-file) fallback must be unchanged by -1a-lite"
+        );
+    }
+
+    #[test]
+    fn step_propagates_mark_done_failure_on_cancelled_removal_instead_of_swallowing_it() {
+        use vidcull_core::Error;
+        use vidcull_core::types::NormalizedPath;
+        use vidcull_db::repo::{NewTask, Task, TaskQueueRepo};
+
+        // 데코드 도중에 폴더가 삭제된 상황을 흉내낸다: dequeue 시점에는 아직
+        // is_path_removed가 false라서 step_inner의 사전 스킵 분기를 타지 않고
+        // handler.handle()까지 도달해야 하며, handle() 안에서 비로소 removed로
+        // 표시하고 테이블을 지운 뒤 Cancelled를 반환해야 Cancelled 분기의
+        // mark_done 실패 경로를 재현할 수 있다.
+        struct CancelViaMidFlightRemoval<'a> {
+            conn: &'a rusqlite::Connection,
+            throttle_control: Arc<ThrottleControl>,
+            removed_root: NormalizedPath,
+        }
+
+        impl TaskHandler for CancelViaMidFlightRemoval<'_> {
+            fn handle(&mut self, _task: &Task) -> vidcull_core::Result<()> {
+                self.throttle_control
+                    .mark_roots_removed(std::slice::from_ref(&self.removed_root));
+                self.conn
+                    .execute("DROP TABLE task_queue", [])
+                    .expect("drop task_queue to force a mark_done fault");
+                Err(Error::Cancelled)
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db =
+            vidcull_db::open_file(&dir.path().join("cancel-removal-fault.db")).expect("open db");
+        let repo = TaskQueueRepo::new(db.conn());
+
+        let removed_root = NormalizedPath::new("C:/removed-root");
+        let change = crate::watcher::ChangeTask {
+            path: NormalizedPath::new("C:/removed-root/clip.mp4"),
+            change: crate::watcher::ChangeKind::Upsert,
+            size_bytes: 0,
+        };
+        repo.enqueue(&NewTask {
+            kind: "scan".to_owned(),
+            priority: 0,
+            payload: Some(change.to_payload().expect("encode change")),
+            enqueued_at: 1_700_000_000,
+            size_bytes: 0,
+        })
+        .expect("enqueue upsert task");
+
+        let throttle_control = Arc::new(ThrottleControl::default());
+        let daemon = Daemon::new(DaemonConfig {
+            kind: "scan".to_owned(),
+            poll_interval: Duration::from_millis(5),
+            throttle_control: Arc::clone(&throttle_control),
+            ..DaemonConfig::default()
+        });
+        let mut handler = CancelViaMidFlightRemoval {
+            conn: db.conn(),
+            throttle_control,
+            removed_root,
+        };
+
+        let res = daemon.step(&db, &mut handler, 1_700_000_100);
+        assert!(
+            res.is_err(),
+            "mark_done failure on the cancelled+folder-removed path must propagate \
+             as an error, not be silently swallowed and return Ok(None): {res:?}"
         );
     }
 

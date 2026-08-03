@@ -34,16 +34,17 @@ impl<'a> PartialMihRepo<'a> {
 
     pub fn insert_posting(&self, posting: &MihPosting) -> Result<()> {
         self.conn
-            .execute(
+            .prepare_cached(
                 "INSERT OR IGNORE INTO partial_mih_postings \
                  (chunk, slice_value, file_id, scene_index) VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    posting.chunk,
-                    to_i64(posting.slice_value),
-                    posting.file_id.0,
-                    to_i64_usize(posting.scene_index),
-                ],
             )
+            .map_err(map_err)?
+            .execute(params![
+                posting.chunk,
+                to_i64(posting.slice_value),
+                posting.file_id.0,
+                to_i64_usize(posting.scene_index),
+            ])
             .map_err(map_err)?;
         Ok(())
     }
@@ -78,10 +79,9 @@ impl<'a> PartialMihRepo<'a> {
 
     pub fn delete_file_postings(&self, file_id: FileId) -> Result<()> {
         self.conn
-            .execute(
-                "DELETE FROM partial_mih_postings WHERE file_id = ?1",
-                params![file_id.0],
-            )
+            .prepare_cached("DELETE FROM partial_mih_postings WHERE file_id = ?1")
+            .map_err(map_err)?
+            .execute(params![file_id.0])
             .map_err(map_err)?;
         Ok(())
     }
@@ -89,7 +89,7 @@ impl<'a> PartialMihRepo<'a> {
     pub fn load_all_postings(&self) -> Result<Vec<MihPosting>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT chunk, slice_value, file_id, scene_index \
                  FROM partial_mih_postings ORDER BY file_id ASC, chunk ASC, scene_index ASC",
             )
@@ -111,39 +111,39 @@ impl<'a> PartialMihRepo<'a> {
 
     pub fn clear_postings(&self) -> Result<()> {
         self.conn
-            .execute("DELETE FROM partial_mih_postings", [])
+            .prepare_cached("DELETE FROM partial_mih_postings")
+            .map_err(map_err)?
+            .execute([])
             .map_err(map_err)?;
         Ok(())
     }
 
     pub fn set_scene_count(&self, file_id: FileId, scene_count: usize) -> Result<()> {
         self.conn
-            .execute(
+            .prepare_cached(
                 "INSERT INTO partial_index_files (file_id, scene_count) VALUES (?1, ?2) \
                  ON CONFLICT(file_id) DO UPDATE SET scene_count = excluded.scene_count",
-                params![file_id.0, to_i64_usize(scene_count)],
             )
+            .map_err(map_err)?
+            .execute(params![file_id.0, to_i64_usize(scene_count)])
             .map_err(map_err)?;
         Ok(())
     }
 
     pub fn delete_scene_count(&self, file_id: FileId) -> Result<()> {
         self.conn
-            .execute(
-                "DELETE FROM partial_index_files WHERE file_id = ?1",
-                params![file_id.0],
-            )
+            .prepare_cached("DELETE FROM partial_index_files WHERE file_id = ?1")
+            .map_err(map_err)?
+            .execute(params![file_id.0])
             .map_err(map_err)?;
         Ok(())
     }
 
     pub fn scene_count(&self, file_id: FileId) -> Result<Option<usize>> {
         self.conn
-            .query_row(
-                "SELECT scene_count FROM partial_index_files WHERE file_id = ?1",
-                params![file_id.0],
-                |row| row.get::<_, i64>(0),
-            )
+            .prepare_cached("SELECT scene_count FROM partial_index_files WHERE file_id = ?1")
+            .map_err(map_err)?
+            .query_row(params![file_id.0], |row| row.get::<_, i64>(0))
             .optional()
             .map_err(map_err)
             .map(|opt| opt.map(|n| usize::try_from(n).unwrap_or(0)))
@@ -152,7 +152,9 @@ impl<'a> PartialMihRepo<'a> {
     pub fn load_all_scene_counts(&self) -> Result<Vec<(FileId, usize)>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT file_id, scene_count FROM partial_index_files ORDER BY file_id ASC")
+            .prepare_cached(
+                "SELECT file_id, scene_count FROM partial_index_files ORDER BY file_id ASC",
+            )
             .map_err(map_err)?;
         let rows = stmt
             .query_map([], |row| {
@@ -169,7 +171,9 @@ impl<'a> PartialMihRepo<'a> {
 
     pub fn clear_scene_counts(&self) -> Result<()> {
         self.conn
-            .execute("DELETE FROM partial_index_files", [])
+            .prepare_cached("DELETE FROM partial_index_files")
+            .map_err(map_err)?
+            .execute([])
             .map_err(map_err)?;
         Ok(())
     }
@@ -201,11 +205,9 @@ impl<'a> PartialMihRepo<'a> {
     pub fn count_short(&self, min_scenes: usize) -> Result<usize> {
         let n: i64 = self
             .conn
-            .query_row(
-                "SELECT COUNT(*) FROM partial_index_files WHERE scene_count < ?1",
-                params![to_i64_usize(min_scenes)],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT COUNT(*) FROM partial_index_files WHERE scene_count < ?1")
+            .map_err(map_err)?
+            .query_row(params![to_i64_usize(min_scenes)], |row| row.get(0))
             .map_err(map_err)?;
         Ok(usize::try_from(n).unwrap_or(0))
     }

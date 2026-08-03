@@ -103,6 +103,8 @@ export interface ProgressSnapshot {
   folderScanning?: boolean;
 
   scanDiscovered?: number;
+
+  groupsRevision?: number;
 }
 
 

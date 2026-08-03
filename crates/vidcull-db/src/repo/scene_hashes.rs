@@ -25,11 +25,17 @@ impl<'a> SceneHashesRepo<'a> {
 
     pub fn insert(&self, hash: &SceneHash) -> Result<i64> {
         self.conn
-            .execute(
+            .prepare_cached(
                 "INSERT INTO scene_hashes (file_id, ts_ms, phash, band_index) \
                  VALUES (?1, ?2, ?3, ?4)",
-                params![hash.file_id.0, hash.ts_ms, hash.phash, hash.band_index],
             )
+            .map_err(map_err)?
+            .execute(params![
+                hash.file_id.0,
+                hash.ts_ms,
+                hash.phash,
+                hash.band_index
+            ])
             .map_err(map_err)?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -37,7 +43,7 @@ impl<'a> SceneHashesRepo<'a> {
     pub fn list_for_file(&self, file_id: FileId) -> Result<Vec<SceneHash>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT id, file_id, ts_ms, phash, band_index \
                  FROM scene_hashes WHERE file_id = ?1 ORDER BY ts_ms ASC, id ASC",
             )

@@ -2517,6 +2517,24 @@ mod system_metadata {
         repo.delete("partial_cold_checkpoint")
             .expect("delete absent is ok");
     }
+
+    #[test]
+    fn groups_revision_starts_at_zero_with_no_key_set() {
+        let db = fresh_db();
+        let repo = SystemMetadataRepo::new(db.conn());
+        assert_eq!(repo.groups_revision().expect("groups_revision"), 0);
+    }
+
+    #[test]
+    fn bump_groups_revision_increments_from_zero_and_persists() {
+        let db = fresh_db();
+        let repo = SystemMetadataRepo::new(db.conn());
+        repo.bump_groups_revision().expect("bump 1");
+        assert_eq!(repo.groups_revision().expect("read after bump 1"), 1);
+        repo.bump_groups_revision().expect("bump 2");
+        repo.bump_groups_revision().expect("bump 3");
+        assert_eq!(repo.groups_revision().expect("read after bump 3"), 3);
+    }
 }
 
 mod delete_journal {

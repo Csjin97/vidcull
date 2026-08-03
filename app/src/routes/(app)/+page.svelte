@@ -115,6 +115,7 @@
   const etaEstimator = new EtaEstimator();
   let prevRemainingForEta = 0;
   let progressSnapshot = $state<ProgressSnapshot | null>(null);
+  let lastGroupsRevision: number | null = null;
   let throughput = $state<number[]>([]);
   let eta = $state<number | null>(null);
   let speedBytesPerSec = $state(0);
@@ -345,6 +346,7 @@
         offset: 0,
       });
       loadedOk = true;
+      lastGroupsRevision = progressSnapshot?.groupsRevision ?? null;
     } catch (err) {
       console.warn("cluster reload failed (will retry):", err);
       loadedOk = false;
@@ -355,16 +357,30 @@
 
   async function refreshGroupList(): Promise<void> {
     if (loading || reloadInFlight) return;
+
+    // 데몬이 보고하는 groups_revision이 안 바뀌었으면 그룹 구성 자체가 바뀌지
+    // 않았다는 뜻이다 — count/reclaimable/list IPC 왕복 전부를 건너뛴다. 구버전
+    // 데몬처럼 이 필드가 없으면(null) 아래 total 기반 경로로 그대로 폴백한다.
+    const groupsRevision = progressSnapshot?.groupsRevision ?? null;
+    if (
+      groupsRevision !== null &&
+      lastGroupsRevision !== null &&
+      groupsRevision === lastGroupsRevision
+    ) {
+      return;
+    }
+
     let prevTotal: number;
     let newTotal: number;
     let scanning: boolean;
     try {
       prevTotal = total;
       newTotal = await dataSource.countClusters(trustArg());
-      total = newTotal; 
+      total = newTotal;
       scanning = progressSnapshot ? isScanning(progressSnapshot) : false;
       if (!shouldRefreshGroups(prevTotal, newTotal, scanning, selectedCluster !== null)) {
-        return; 
+        lastGroupsRevision = groupsRevision;
+        return;
       }
     } catch (err) {
       console.warn("group list refresh failed (will retry):", err);
@@ -384,6 +400,7 @@
         clusters = next;
       }
       loadedOk = true;
+      lastGroupsRevision = groupsRevision;
     } catch (err) {
       console.warn("group list refresh failed (will retry):", err);
     } finally {
@@ -617,18 +634,32 @@
     let totalRemoved = 0;
     let totalReclaimed = 0;
     let anyFailed = false;
-    try {
-      for (const { cluster, selected } of plan.perCluster) {
-        const result = await deleteClusterFiles(cluster, [...selected], bulkMode);
-        totalBatches += result.batches;
-        totalRemoved += result.removedFileIds.length;
-        totalReclaimed += result.reclaimedBytes;
-        if (!result.ok) anyFailed = true;
+
+    // 그룹별 삭제를 완전 순차로 돌리면 그룹 수만큼 IPC 왕복이 쌓이고, 무제한
+    // Promise.all은 SQLite 쓰기 충돌·휴지통 API 부하를 키운다 — 동시성 2로 제한.
+    const BULK_DELETE_CONCURRENCY = 2;
+    const queue = [...plan.perCluster];
+    async function worker(): Promise<void> {
+      let next = queue.shift();
+      while (next !== undefined) {
+        const { cluster, selected } = next;
+        try {
+          const result = await deleteClusterFiles(cluster, [...selected], bulkMode);
+          totalBatches += result.batches;
+          totalRemoved += result.removedFileIds.length;
+          totalReclaimed += result.reclaimedBytes;
+          if (!result.ok) anyFailed = true;
+        } catch (err) {
+          errorStore.reportError(err);
+          anyFailed = true;
+        }
+        next = queue.shift();
       }
-    } catch (err) {
-      errorStore.reportError(err);
-      anyFailed = true;
     }
+    await Promise.all(
+      Array.from({ length: Math.min(BULK_DELETE_CONCURRENCY, queue.length) }, worker),
+    );
+
     bulkBusy = false;
     bulkDialogOpen = false;
     bulkSelectedIds = new Set();

@@ -140,6 +140,7 @@ export interface WireProgressSnapshot {
   partial_failed?: number;
   folder_scanning?: boolean;
   scan_discovered?: number;
+  groups_revision?: number;
 }
 
 export function validateProgressSnapshot(
@@ -194,6 +195,11 @@ export function validateProgressSnapshot(
       cmd,
       "scan_discovered",
       o.scan_discovered,
+    ),
+    groups_revision: expectNumberOptional(
+      cmd,
+      "groups_revision",
+      o.groups_revision,
     ),
   };
 }

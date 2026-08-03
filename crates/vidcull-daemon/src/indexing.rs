@@ -3,7 +3,7 @@ use vidcull_core::{Error, Result};
 use vidcull_db::Database;
 use vidcull_db::repo::{
     DuplicateGroupsRepo, FileRecord, FilesRepo, Fingerprint, FingerprintsRepo, NewFile,
-    PartialSkipMarker, RegroupQueueRepo, Task, TaskQueueRepo, TrustLevel,
+    PartialSkipMarker, RegroupQueueRepo, SystemMetadataRepo, Task, TaskQueueRepo, TrustLevel,
 };
 use vidcull_fingerprint::format::{FORMAT_VERSION, decode_tier2, encode_tier1, encode_tier2};
 use vidcull_fingerprint::{
@@ -25,8 +25,8 @@ use vidcull_parser::fallback::{
     DecodeConcurrency, DecodePath, FallbackMetrics, FfmpegBinaries,
     decode_sparse_strided_with_streaming, probe_fallback_cancellable,
 };
-use vidcull_parser::mp4::read_mp4_tolerant_hashing_cancellable;
 use vidcull_parser::mkv::probe_mkv_hashing_cancellable;
+use vidcull_parser::mp4::read_mp4_tolerant_hashing_cancellable;
 use vidcull_parser::{
     Cancel, ContainerKind, PreParsedMp4, VideoMetadata, container_kind_from_path, full_grid_len,
     probe_and_decode_sparse_budgets_streaming, probe_and_decode_sparse_budgets_streaming_preparsed,
@@ -1972,9 +1972,13 @@ impl IndexingHandler {
         if partial_mutated || whole_file_mutated {
             assign_best_copies(&mut self.worker.db, now)?;
         }
-        self.worker
-            .db
-            .transaction(|conn| RegroupQueueRepo::new(conn).clear(changed.iter().copied()))?;
+        self.worker.db.transaction(|conn| {
+            RegroupQueueRepo::new(conn).clear(changed.iter().copied())?;
+            // 이 패스에서 실제로 그룹 구성이 바뀌었는지는 따지지 않고 매번 올린다 —
+            // 규모 있는 재매칭 경로 전부(add_member/remove_member/best 재선정 등)를
+            // 감시하는 대신, "완료된 재매칭 패스마다 최소 1회"로 보수적으로 잡는다.
+            SystemMetadataRepo::new(conn).bump_groups_revision()
+        })?;
         self.last_foreground_delta_high_water = 0;
         self.last_partial_delta_high_water = 0;
         self.cadence.reset(now);
@@ -2695,7 +2699,8 @@ impl TaskHandler for IndexingHandler {
             .set_capacity(budget.saturating_sub(1).max(1));
         self.base_decode_gate
             .set_capacity(budget.clamp(1, BASE_DECODE_CONCURRENCY));
-        self.seq_read_gate.set_capacity(seq_read_cap_for_budget(budget));
+        self.seq_read_gate
+            .set_capacity(seq_read_cap_for_budget(budget));
         if std::env::var_os("VIDCULL_RESOURCE_LOG").is_some() {
             let (dc_in, dc_cap) = self.decode_conc.snapshot();
             let (bg_in, bg_cap) = self.base_decode_gate.snapshot();
@@ -3083,7 +3088,11 @@ mod tests {
             seq_read_cap_from(Some("lots"), SEQ_READ_CONCURRENCY),
             SEQ_READ_CONCURRENCY
         );
-        assert_eq!(seq_read_cap_from(None, 17), 17, "falls back to the given default");
+        assert_eq!(
+            seq_read_cap_from(None, 17),
+            17,
+            "falls back to the given default"
+        );
     }
 
     #[test]
@@ -7852,7 +7861,10 @@ mod tests {
 
             handler.set_decode_budget(2);
             let (_, cap) = handler.seq_read_gate.snapshot();
-            assert_eq!(cap, 2, "seq_read_gate must also shrink back down with budget");
+            assert_eq!(
+                cap, 2,
+                "seq_read_gate must also shrink back down with budget"
+            );
         }
     }
 

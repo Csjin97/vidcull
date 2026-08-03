@@ -3410,6 +3410,100 @@ async fn os_remover_permanently_deletes_a_real_file_and_updates_the_db() {
     let _ = h.serve.await;
 }
 
+async fn groups_revision(client: &mut IpcClient) -> u64 {
+    match client.request(&Request::Progress).await.expect("progress") {
+        Response::Progress(p) => p.groups_revision,
+        other => panic!("expected Progress, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn deleting_a_file_bumps_groups_revision() {
+    let files = tempfile::tempdir().expect("files dir");
+    let keep = files.path().join("best.mp4");
+    let dupe1 = files.path().join("dupe1.mp4");
+    for p in [&keep, &dupe1] {
+        std::fs::write(p, b"payload").expect("write file");
+    }
+
+    let h = spawn_seeded_with(Arc::new(OsFileRemover), |db| {
+        seed_real_group(db, &[(&keep, 1_000_000, true), (&dupe1, 400_000, false)]);
+    });
+    let mut client = IpcClient::connect(&h.address).await.expect("connect");
+
+    let before = groups_revision(&mut client).await;
+
+    let resp = client
+        .request(&Request::Action(Action::DeletePermanent(DeleteRequest {
+            group_id: 1,
+            file_ids: vec![2],
+            confirm_best: false,
+        })))
+        .await
+        .expect("delete");
+    match resp {
+        Response::Delete(r) => assert!(r.ok, "real delete succeeded: {}", r.detail),
+        other => panic!("expected Delete, got {other:?}"),
+    }
+
+    let after = groups_revision(&mut client).await;
+    assert!(
+        after > before,
+        "a completed delete must bump groups_revision so the UI can skip a stale-list \
+         refresh no-op (before={before}, after={after})",
+    );
+
+    h.shutdown.trigger();
+    let _ = h.serve.await;
+}
+
+#[tokio::test]
+async fn undo_bumps_groups_revision() {
+    let files_dir = tempfile::tempdir().expect("files dir");
+    let p1 = real_file(files_dir.path(), "best.mp4");
+    let p2 = real_file(files_dir.path(), "dupe1.mp4");
+    let remover = Arc::new(RecordingRemover::default());
+    let h = spawn_seeded_with(remover, move |db| {
+        let f1 = seed_rich(db, &p1, 1_000_000, 0xaa);
+        let f2 = seed_rich(db, &p2, 400_000, 0xaa);
+        let repo = DuplicateGroupsRepo::new(db.conn());
+        let gid = repo.create(DbTrust::Exact, T0).expect("group");
+        repo.add_member(gid, f1).expect("f1");
+        repo.add_member(gid, f2).expect("f2");
+        repo.set_best(gid, Some(f1), T0).expect("best");
+    });
+    let mut client = IpcClient::connect(&h.address).await.expect("connect");
+
+    client
+        .request(&Request::Action(Action::MoveToTrash(DeleteRequest {
+            group_id: 1,
+            file_ids: vec![2],
+            confirm_best: false,
+        })))
+        .await
+        .expect("delete");
+    let after_delete = groups_revision(&mut client).await;
+
+    let resp = client
+        .request(&Request::Action(Action::UndoLastDelete))
+        .await
+        .expect("undo");
+    match resp {
+        Response::Undo(r) => assert!(r.ok, "undo succeeded: {}", r.detail),
+        other => panic!("expected Undo, got {other:?}"),
+    }
+
+    let after_undo = groups_revision(&mut client).await;
+    assert!(
+        after_undo > after_delete,
+        "a completed undo must bump groups_revision too (after_delete={after_delete}, \
+         after_undo={after_undo})",
+    );
+
+    h.shutdown.trigger();
+    let _ = h.serve.await;
+}
+
 #[tokio::test]
 async fn os_remover_is_idempotent_when_the_file_already_vanished() {
     let files = tempfile::tempdir().expect("files dir");

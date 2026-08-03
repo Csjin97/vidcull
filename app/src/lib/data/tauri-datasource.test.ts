@@ -37,6 +37,7 @@ describe("TauriDataSource.progress", () => {
       partialFailed: 0,
       folderScanning: false,
       scanDiscovered: 0,
+      groupsRevision: 0,
     });
     expect(invokeSafe).toHaveBeenCalledWith("daemon_progress");
   });
@@ -71,6 +72,7 @@ describe("TauriDataSource.progress", () => {
       partialFailed: 0,
       folderScanning: false,
       scanDiscovered: 0,
+      groupsRevision: 0,
     });
   });
 
@@ -86,6 +88,27 @@ describe("TauriDataSource.progress", () => {
     const snap = await ds.progress();
     expect(snap.partialFailed).toBe(3);
     expect(snap.partialSkipped).toEqual({});
+  });
+
+  it("maps groups_revision through to groupsRevision, defaulting to 0", async () => {
+    invokeSafe.mockResolvedValueOnce({
+      pending: 0,
+      running: 0,
+      done: 50,
+      failed: 0,
+      groups_revision: 12,
+    });
+    const ds = new TauriDataSource();
+    expect((await ds.progress()).groupsRevision).toBe(12);
+
+    invokeSafe.mockResolvedValueOnce({
+      pending: 0,
+      running: 0,
+      done: 50,
+      failed: 0,
+    });
+    const withoutField = new TauriDataSource();
+    expect((await withoutField.progress()).groupsRevision).toBe(0);
   });
 });
 

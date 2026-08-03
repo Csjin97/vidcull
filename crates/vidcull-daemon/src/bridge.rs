@@ -16,8 +16,8 @@ use vidcull_core::types::{FileId, NormalizedPath, VideoDuration};
 use vidcull_db::Database;
 use vidcull_db::repo::{
     BatchFileRole, DeleteBatchMode, DeleteJournalRepo, DuplicateGroupsRepo, FileRecord, FilesRepo,
-    FingerprintsRepo, PartialMihRepo, SimilarityEdgesRepo, TaskQueueRepo, TaskState,
-    TrustLevel as DbTrust,
+    FingerprintsRepo, PartialMihRepo, SimilarityEdgesRepo, SystemMetadataRepo, TaskQueueRepo,
+    TaskState, TrustLevel as DbTrust,
 };
 use vidcull_fingerprint::format::decode_tier2;
 use vidcull_ipc::protocol::PROTOCOL_VERSION;
@@ -305,6 +305,7 @@ impl DaemonRequestHandler {
                 partial_failed,
                 folder_scanning,
                 scan_discovered,
+                groups_revision: SystemMetadataRepo::new(db.conn()).groups_revision()?,
             })
         });
         match snapshot {
@@ -689,6 +690,7 @@ impl DaemonRequestHandler {
                 } else {
                     true
                 };
+                SystemMetadataRepo::new(conn).bump_groups_revision()?;
                 DeleteJournalRepo::new(conn)
                     .finalize_committed(pending_batch_id, !survives, &journal_files)
                     .map(|()| pending_batch_id)
@@ -805,6 +807,7 @@ impl DaemonRequestHandler {
                                     BatchFileRole::Deleted => {}
                                 }
                             }
+                            SystemMetadataRepo::new(conn).bump_groups_revision()?;
                             DeleteJournalRepo::new(conn).remove(batch.id)
                         })?;
                         assign_best_copies(db, now)?;

@@ -265,6 +265,7 @@ export class TauriDataSource implements DataSource {
       partialFailed: wire.partial_failed ?? 0,
       folderScanning: wire.folder_scanning ?? false,
       scanDiscovered: wire.scan_discovered ?? 0,
+      groupsRevision: wire.groups_revision ?? 0,
     };
   }
 
